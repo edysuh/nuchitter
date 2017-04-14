@@ -31,6 +31,7 @@ func main() {
 }
 
 type Client struct {
+    id int
 	conn net.Conn
 	channel chan string
 }
@@ -46,13 +47,17 @@ func startServer(port string) {
 	addClient := make(chan Client)
 	go handleChannels(messages, addClient)
 
+    clientCount := 0
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			fmt.Println("Error: Cannot accept connection:", err)
 		}
 
-		go handleConnection(conn, messages, addClient)
+		go handleConnection(conn, messages, addClient, clientCount)
+
+        clientCount++
 	}
 }
 
@@ -63,26 +68,26 @@ func handleChannels(messagesChan chan string, clientsChan chan Client) {
 	for {
 		select {
 		case cl := <-clientsChan:
-			fmt.Println("clientsChan")
 			clientList = append(clientList, cl)
-
 			fmt.Println("clientList:", clientList)
-			// for cl := range clientsChan {
-			// 	fmt.Println("client channeled here:", cl)
-			// }
+
 		case msg := <-messagesChan:
 			fmt.Println("messagesChan", msg)
-			// for msg := range messagesChan {
-			// 	fmt.Println("mischief managed:", msg)
-			// }
+
+			for i := range clientList {
+                go func(mch chan string) {
+                    mch <- msg
+                }(clientList[i].channel)
+				// clientList[i].conn.Write([]byte("broadcasting" + msg))
+			}
 		}
 	}
 }
 
 
-func handleConnection(conn net.Conn, msg chan string, addClient chan Client) {
+func handleConnection(conn net.Conn, msg chan string, addClient chan Client, clientID int) {
 	ch := make(chan string)
-	addClient <- Client{conn, ch}
+	addClient <- Client{clientID, conn, ch}
 
 	for {
 		recvdMsg, err := bufio.NewReader(conn).ReadString('\n')
@@ -92,6 +97,11 @@ func handleConnection(conn net.Conn, msg chan string, addClient chan Client) {
 			conn.Close()
 			break
 		}
+
+        // select {
+        // case broadcasted := <-ch:
+        //     _, err = conn.Write([]byte(broadcasted))
+        // }
 
 		msg <- recvdMsg
 
@@ -116,6 +126,7 @@ func startClient(addrport string) {
 		if err != nil { fmt.Println("Error: Cannot read input:", err) }
 
 		// send message to server
-		conn.Write([]byte("< " + sendMsg))
+		// conn.Write([]byte("< " + sendMsg))
+		conn.Write([]byte(sendMsg))
 	}
 }
